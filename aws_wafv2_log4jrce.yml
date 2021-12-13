@@ -1,0 +1,52 @@
+---
+- hosts: localhost
+
+  vars:
+    region: eu-central-1
+    #ALB_NAME: my_alb
+
+  tasks:
+    - name: wafv2 log4jrce mitigation
+      community.aws.wafv2_web_acl:
+        name: Log4JRCE_WAF
+        state: present
+        description: log4jrce mitigaion
+        region: "{{ region }}"
+        scope: REGIONAL
+        default_action: Allow
+        sampled_requests: yes
+        cloudwatch_metrics: yes
+        rules:
+          - name: Log4JRCE-blocks
+            priority: 1
+            override_action:
+              none: {}
+            visibility_config:
+              sampled_requests_enabled: yes
+              cloud_watch_metrics_enabled: yes
+              metric_name: Log4JRCE-blocks
+            statement:
+              managed_rule_group_statement:
+                vendor_name: AWS
+                name: AWSManagedRulesKnownBadInputsRuleSet
+                excluded_rules:
+                  - name: PROPFIND_METHOD
+                  - name: Host_localhost_HEADER
+                  - name: ExploitablePaths_URIPATH
+     
+    - name: apply log4jrce waf to ALB
+      when: ALB_NAME is defined
+      block:
+        - name: get arn of alb
+          community.aws.elb_application_lb_info:
+            names:
+              - "{{ ALB_NAME }}"
+          register: raw_alb
+
+        - name: apply Log4JRCE_WAF to alb
+          community.aws.wafv2_resources:
+            name: Log4JRCE_WAF
+            region: "{{ region }}"
+            scope: REGIONAL
+            state: present
+            arn: "{{ raw_alb.load_balancers[0].load_balancer_arn }}"
